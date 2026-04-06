@@ -7,6 +7,7 @@ import {
   Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Hand, Settings,
   Link, UserPlus, MoreHorizontal, Maximize2
 } from 'lucide-react';
+import { wsBaseUrl } from '../config';
 import './Room.css';
 
 const Room = () => {
@@ -35,7 +36,7 @@ const Room = () => {
 
   useEffect(() => {
     // Establish WebSocket using room ID
-    const socket = new WebSocket('ws://localhost:3001/connect');
+    const socket = new WebSocket(`${wsBaseUrl}/connect`);
     
     socket.onopen = () => {
       socket.send(JSON.stringify({ type: 'join', roomId: roomId || 'HACK24' }));

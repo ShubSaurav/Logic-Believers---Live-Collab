@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MonitorSpeaker, ArrowLeft, Download, PlayCircle, Clock, Calendar as CalendarIcon, Filter, Search, Sparkles, Inbox } from 'lucide-react';
+import { apiBaseUrl } from '../config';
 import './History.css';
 import './Dashboard.css'; // Leverage skeleton classes
 
@@ -12,7 +13,7 @@ const History = () => {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/history');
+          const response = await fetch(`${apiBaseUrl}/api/history`);
         const data = await response.json();
         setSessions(data.sessions || []);
       } catch (err) {

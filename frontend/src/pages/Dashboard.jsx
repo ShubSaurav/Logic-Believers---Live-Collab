@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, Users, MonitorSpeaker, Clock, Calendar, ArrowRight, Play, Sun, Moon, Inbox } from 'lucide-react';
 import { ThemeContext } from '../App';
+import { apiBaseUrl } from '../config';
 import './Dashboard.css';
 
 const Dashboard = () => {
@@ -12,14 +13,15 @@ const Dashboard = () => {
   const [history, setHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
         const [dashRes, histRes] = await Promise.all([
-          fetch('http://localhost:3001/api/dashboard'),
-          fetch('http://localhost:3001/api/history')
+          fetch(`${apiBaseUrl}/api/dashboard`),
+          fetch(`${apiBaseUrl}/api/history`)
         ]);
         
         const dashData = await dashRes.json();
@@ -38,21 +40,31 @@ const Dashboard = () => {
   }, []);
 
   const createRoom = async () => {
+    if (isCreatingRoom) {
+      return;
+    }
+
+    setIsCreatingRoom(true);
     try {
-      const response = await fetch('http://localhost:3001/room', {
+      const response = await fetch(`${apiBaseUrl}/api/room`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ title: 'New Brainstorm Session' })
       });
+
       const data = await response.json();
       if (data.success) {
         navigate(`/room/${data.roomId}`);
+      } else {
+        alert(`Could not create room: ${data.error || 'Unknown error'}`);
       }
     } catch (err) {
       console.error("Failed to create room", err);
-      navigate(`/room/HACK24`);
+      alert('Could not create room. Please make sure backend is running on port 3001.');
+    } finally {
+      setIsCreatingRoom(false);
     }
   };
 
@@ -78,8 +90,8 @@ const Dashboard = () => {
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           </button>
           <button className="btn-secondary" onClick={() => navigate('/room')}>Join Room</button>
-          <button className="btn-primary flex-center" onClick={createRoom}>
-            <Plus size={18} style={{ marginRight: '0.5rem' }} /> New Room
+          <button className="btn-primary flex-center" onClick={createRoom} disabled={isCreatingRoom}>
+            <Plus size={18} style={{ marginRight: '0.5rem' }} /> {isCreatingRoom ? 'Creating...' : 'New Room'}
           </button>
           <div className="avatar-dropdown" style={{position: 'relative'}}>
             <div className="avatar glass-panel" onClick={() => setShowDropdown(!showDropdown)}>

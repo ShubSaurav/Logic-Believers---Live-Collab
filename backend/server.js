@@ -12,16 +12,23 @@ const Room = require('./models/Room');
 const Session = require('./models/Session');
 
 const app = express();
-app.use(cors());
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
+  : true;
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: '/connect' });
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected successfully'))
-  .catch(err => console.error('MongoDB connection error:', err));
+if (!process.env.MONGO_URI) {
+  console.warn('MONGO_URI is missing. Database-backed features will fail until configured.');
+} else {
+  mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('MongoDB connected successfully'))
+    .catch(err => console.error('MongoDB connection error:', err));
+}
 
 if (!process.env.GOOGLE_CLIENT_ID) {
   console.warn('GOOGLE_CLIENT_ID is missing. Google login will fail until configured.');
@@ -88,31 +95,78 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
+app.get('/api/health', (req, res) => {
+  const mongoReadyState = mongoose.connection.readyState;
+  const mongoConnected = mongoReadyState === 1;
+  res.json({
+    success: true,
+    status: 'ok',
+    wsPath: '/connect',
+    mongoConnected,
+    googleConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
+    corsOrigin: allowedOrigins
+  });
+});
+
 // Since the websocket logic is complex and relies on active clients (which can't be purely DB driven right away), I will keep `rooms` Map for active websocket clients, but push to MongoDB `Session` when room closes.
 const roomsMap = new Map();
 
 const generateRoomCode = () => Math.random().toString(36).substring(2, 8).toUpperCase();
 
-// Room Creation
-app.post('/room', async (req, res) => {
-  const roomId = generateRoomCode();
-  const roomTitle = req.body.title || `Room ${roomId}`;
-  
-  const newRoom = new Room({
-    roomId,
-    title: roomTitle,
-  });
-  await newRoom.save();
+async function createUniqueRoomCode(maxAttempts = 8) {
+  for (let i = 0; i < maxAttempts; i += 1) {
+    const roomCode = generateRoomCode();
+    if (roomsMap.has(roomCode)) {
+      continue;
+    }
 
-  roomsMap.set(roomId, {
-    title: roomTitle,
-    clients: new Set(),
-    history: []
-  });
-  
-  console.log(`Room created: ${roomId}`);
-  res.json({ roomId, success: true });
-});
+    // If DB is connected, ensure we avoid existing room IDs there too.
+    if (mongoose.connection.readyState === 1) {
+      const exists = await Room.exists({ roomId: roomCode });
+      if (exists) {
+        continue;
+      }
+    }
+
+    return roomCode;
+  }
+
+  throw new Error('Failed to generate a unique room code');
+}
+
+// Room Creation
+async function handleCreateRoom(req, res) {
+  try {
+    const roomId = await createUniqueRoomCode();
+    const incomingTitle = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    const roomTitle = incomingTitle || `Room ${roomId}`;
+
+    roomsMap.set(roomId, {
+      title: roomTitle,
+      clients: new Set(),
+      history: []
+    });
+
+    // Persist to DB when available; if DB write fails, keep the in-memory room alive.
+    if (mongoose.connection.readyState === 1) {
+      const newRoom = new Room({ roomId, title: roomTitle });
+      await newRoom.save();
+    }
+
+    console.log(`Room created: ${roomId}`);
+    return res.json({ success: true, roomId, title: roomTitle });
+  } catch (error) {
+    console.error('Create room error', error?.message || error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create room',
+      details: error?.message || 'Unknown create-room error'
+    });
+  }
+}
+
+app.post('/room', handleCreateRoom);
+app.post('/api/room', handleCreateRoom);
 
 // Dashboard
 app.get('/api/dashboard', async (req, res) => {
