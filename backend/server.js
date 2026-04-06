@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -22,12 +23,42 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected successfully'))
   .catch(err => console.error('MongoDB connection error:', err));
 
+if (!process.env.GOOGLE_CLIENT_ID) {
+  console.warn('GOOGLE_CLIENT_ID is missing. Google login will fail until configured.');
+}
+
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+function decodeJwtPayload(token) {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
 
 // Google Auth Endpoint
 app.post('/api/auth/google', async (req, res) => {
   try {
     const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ success: false, error: 'Missing Google credential' });
+    }
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(500).json({ success: false, error: 'Server Google config missing' });
+    }
+
+    const decoded = decodeJwtPayload(credential);
+    if (decoded?.aud && decoded.aud !== process.env.GOOGLE_CLIENT_ID) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid Google token',
+        details: `Audience mismatch. token aud=${decoded.aud}, expected=${process.env.GOOGLE_CLIENT_ID}`
+      });
+    }
+
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
       audience: process.env.GOOGLE_CLIENT_ID
@@ -48,8 +79,12 @@ app.post('/api/auth/google', async (req, res) => {
     
     res.json({ success: true, user });
   } catch (error) {
-    console.error("Auth error", error);
-    res.status(401).json({ success: false, error: 'Invalid Google token' });
+    console.error('Auth error', error?.message || error);
+    res.status(401).json({
+      success: false,
+      error: 'Invalid Google token',
+      details: error?.message || 'Unknown auth error'
+    });
   }
 });
 

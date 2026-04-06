@@ -33,7 +33,8 @@ const Login = () => {
         localStorage.setItem('user', JSON.stringify(data.user));
         navigate('/dashboard');
       } else {
-        alert("Authentication failed.");
+        const detailText = data.details ? ` (${data.details})` : '';
+        alert(`Authentication failed: ${data.error || 'Unknown error'}${detailText}`);
       }
     } catch (err) {
       console.error(err);
