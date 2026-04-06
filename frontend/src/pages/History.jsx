@@ -99,7 +99,7 @@ const History = () => {
                   </div>
 
                   <div className="content-actions">
-                    <button className="btn-secondary btn-sm" onClick={() => navigate('/room')}>
+                    <button className="btn-secondary btn-sm" onClick={() => navigate(`/room/${session.roomId}`)}>
                       Reopen Space
                     </button>
                     <button className="btn-secondary btn-sm">

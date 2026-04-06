@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, Users, MonitorSpeaker, Clock, Calendar, ArrowRight, Play, Sun, Moon, Inbox } from 'lucide-react';
+import { Search, Plus, Users, MonitorSpeaker, Clock, ArrowRight, Play, Sun, Moon, Inbox } from 'lucide-react';
 import { ThemeContext } from '../App';
 import { apiBaseUrl } from '../config';
 import './Dashboard.css';
@@ -14,6 +14,14 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [userName, setUserName] = useState('Collaborator');
+
+  useEffect(() => {
+    const savedUser = JSON.parse(localStorage.getItem('user') || 'null');
+    if (savedUser?.name) {
+      setUserName(savedUser.name);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -68,6 +76,24 @@ const Dashboard = () => {
     }
   };
 
+  const joinRoomByCode = async () => {
+    const input = window.prompt('Enter room code');
+    const code = (input || '').trim().toUpperCase();
+    if (!code) {
+      return;
+    }
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/room/${code}`);
+      if (!res.ok) {
+        alert('Room not found. Please check the room code.');
+        return;
+      }
+      navigate(`/room/${code}`);
+    } catch {
+      alert('Could not verify room. Please check backend connection and try again.');
+    }
+  };
+
   return (
     <div className="dashboard-container">
       {/* Top Navbar */}
@@ -89,7 +115,7 @@ const Dashboard = () => {
           <button className="icon-btn glass-panel" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           </button>
-          <button className="btn-secondary" onClick={() => navigate('/room')}>Join Room</button>
+          <button className="btn-secondary" onClick={joinRoomByCode}>Join Room</button>
           <button className="btn-primary flex-center" onClick={createRoom} disabled={isCreatingRoom}>
             <Plus size={18} style={{ marginRight: '0.5rem' }} /> {isCreatingRoom ? 'Creating...' : 'New Room'}
           </button>
@@ -113,7 +139,7 @@ const Dashboard = () => {
         {/* Welcome Section */}
         <header className="page-header">
           <div>
-            <h1>Welcome back, Alex</h1>
+            <h1>Welcome back, {userName}</h1>
             <p className="text-secondary">Ready to collaborate and build something great today?</p>
           </div>
         </header>
@@ -128,7 +154,7 @@ const Dashboard = () => {
             <p className="text-secondary">Start a new blank workspace</p>
           </div>
           
-          <div className="glass-card action-card bounce-hover" onClick={() => navigate('/room')}>
+          <div className="glass-card action-card bounce-hover" onClick={joinRoomByCode}>
             <div className="icon-wrapper">
               <Users size={24} className="text-gradient" />
             </div>
@@ -136,12 +162,12 @@ const Dashboard = () => {
             <p className="text-secondary">Enter a code to join team</p>
           </div>
 
-          <div className="glass-card action-card bounce-hover">
+          <div className="glass-card action-card" onClick={() => navigate('/history')}>
             <div className="icon-wrapper">
-              <Calendar size={24} className="text-gradient" />
+              <Clock size={24} className="text-gradient" />
             </div>
-            <h3>Schedule</h3>
-            <p className="text-secondary">Plan a future collaboration</p>
+            <h3>View History</h3>
+            <p className="text-secondary">Review previous sessions and summaries</p>
           </div>
         </section>
 
@@ -176,9 +202,8 @@ const Dashboard = () => {
                   <p className="text-secondary text-sm">Active {room.participantCount} users</p>
                   <p className="text-secondary text-xs">Code: {room.id}</p>
                   <div className="room-card-footer">
-                    <div className="participants-stack">
-                      <img src="https://i.pravatar.cc/150?img=1" alt="p1" />
-                      {room.participantCount > 1 && <img src="https://i.pravatar.cc/150?img=2" alt="p2" />}
+                    <div className="participants-stack" aria-label="participants">
+                      <span className="text-secondary text-sm">{room.participantCount} online</span>
                     </div>
                     <button className="btn-primary btn-sm" onClick={() => navigate(`/room/${room.id}`)}>
                       <Play size={14} /> Resume

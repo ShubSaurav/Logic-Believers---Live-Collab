@@ -30,11 +30,16 @@ if (!process.env.MONGO_URI) {
     .catch(err => console.error('MongoDB connection error:', err));
 }
 
-if (!process.env.GOOGLE_CLIENT_ID) {
-  console.warn('GOOGLE_CLIENT_ID is missing. Google login will fail until configured.');
+const googleAudiences = (process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || '')
+  .split(',')
+  .map(id => id.trim())
+  .filter(Boolean);
+
+if (googleAudiences.length === 0) {
+  console.warn('GOOGLE_CLIENT_ID or GOOGLE_CLIENT_IDS is missing. Google login will fail until configured.');
 }
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client();
 
 function decodeJwtPayload(token) {
   try {
@@ -53,22 +58,22 @@ app.post('/api/auth/google', async (req, res) => {
     if (!credential) {
       return res.status(400).json({ success: false, error: 'Missing Google credential' });
     }
-    if (!process.env.GOOGLE_CLIENT_ID) {
+    if (googleAudiences.length === 0) {
       return res.status(500).json({ success: false, error: 'Server Google config missing' });
     }
 
     const decoded = decodeJwtPayload(credential);
-    if (decoded?.aud && decoded.aud !== process.env.GOOGLE_CLIENT_ID) {
+    if (decoded?.aud && !googleAudiences.includes(decoded.aud)) {
       return res.status(401).json({
         success: false,
         error: 'Invalid Google token',
-        details: `Audience mismatch. token aud=${decoded.aud}, expected=${process.env.GOOGLE_CLIENT_ID}`
+        details: `Audience mismatch. token aud=${decoded.aud}, expected one of configured client IDs.`
       });
     }
 
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID
+      audience: googleAudiences
     });
     const payload = ticket.getPayload();
     
@@ -103,7 +108,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     wsPath: '/connect',
     mongoConnected,
-    googleConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
+    googleConfigured: googleAudiences.length > 0,
     corsOrigin: allowedOrigins
   });
 });
@@ -144,7 +149,8 @@ async function handleCreateRoom(req, res) {
     roomsMap.set(roomId, {
       title: roomTitle,
       clients: new Set(),
-      history: []
+      history: [],
+      peakParticipants: 0
     });
 
     // Persist to DB when available; if DB write fails, keep the in-memory room alive.
@@ -168,6 +174,45 @@ async function handleCreateRoom(req, res) {
 app.post('/room', handleCreateRoom);
 app.post('/api/room', handleCreateRoom);
 
+app.get('/api/room/:roomId', async (req, res) => {
+  const roomId = (req.params.roomId || '').trim().toUpperCase();
+  if (!roomId) {
+    return res.status(400).json({ success: false, error: 'Room code is required' });
+  }
+
+  if (roomsMap.has(roomId)) {
+    const roomData = roomsMap.get(roomId);
+    return res.json({
+      success: true,
+      exists: true,
+      room: {
+        id: roomId,
+        title: roomData.title,
+        active: true,
+        participantCount: roomData.clients.size
+      }
+    });
+  }
+
+  if (mongoose.connection.readyState === 1) {
+    const dbRoom = await Room.findOne({ roomId }).lean();
+    if (dbRoom) {
+      return res.json({
+        success: true,
+        exists: true,
+        room: {
+          id: dbRoom.roomId,
+          title: dbRoom.title,
+          active: Boolean(dbRoom.active),
+          participantCount: 0
+        }
+      });
+    }
+  }
+
+  return res.status(404).json({ success: false, exists: false, error: 'Room not found' });
+});
+
 // Dashboard
 app.get('/api/dashboard', async (req, res) => {
   const activeRooms = Array.from(roomsMap.entries()).map(([id, data]) => ({
@@ -176,13 +221,39 @@ app.get('/api/dashboard', async (req, res) => {
     participantCount: data.clients.size,
     status: 'Active now'
   }));
+
+  // Merge DB active rooms when not currently in memory map.
+  if (mongoose.connection.readyState === 1) {
+    const dbRooms = await Room.find({ active: true }).sort({ createdAt: -1 }).limit(10).lean();
+    dbRooms.forEach((room) => {
+      if (!activeRooms.find((item) => item.id === room.roomId)) {
+        activeRooms.push({
+          id: room.roomId,
+          title: room.title,
+          participantCount: 0,
+          status: 'Active'
+        });
+      }
+    });
+  }
+
   res.json({ recentRooms: activeRooms.slice(0, 6) });
 });
 
 // History
 app.get('/api/history', async (req, res) => {
-  const sessions = await Session.find().sort({ date: -1 }).limit(10);
-  res.json({ sessions });
+  const sessions = await Session.find().sort({ date: -1 }).limit(10).lean();
+  const normalizedSessions = sessions.map((session) => ({
+    id: String(session._id),
+    roomId: session.roomId,
+    title: session.title,
+    date: session.date,
+    duration: session.durationStr || 'Session ended',
+    participants: session.participantsCount || 1,
+    aiSummary: session.aiSummary || 'No summary generated yet.',
+    recordingAvailable: Boolean(session.recordingAvailable)
+  }));
+  res.json({ sessions: normalizedSessions });
 });
 
 // WebSocket Handler
@@ -199,6 +270,7 @@ wss.on('connection', (ws, req) => {
             currentRoom = data.roomId;
             const roomData = roomsMap.get(currentRoom);
             roomData.clients.add(ws);
+            roomData.peakParticipants = Math.max(roomData.peakParticipants || 0, roomData.clients.size);
             
             ws.send(JSON.stringify({ 
               type: 'joined', 
@@ -219,7 +291,8 @@ wss.on('connection', (ws, req) => {
                   roomsMap.set(data.roomId, {
                      title: dbRoom.title,
                      clients: new Set([ws]),
-                     history: []
+                    history: [],
+                    peakParticipants: 1
                   });
                   currentRoom = data.roomId;
                   ws.send(JSON.stringify({ type: 'joined', clientId, roomId: currentRoom, history: [] }));
@@ -259,9 +332,9 @@ wss.on('connection', (ws, req) => {
           const newSession = new Session({
             roomId: currentRoom,
             title: roomData.title,
-            durationStr: "Closed Session",
-            participantsCount: Math.floor(Math.random()*3)+1,
-            aiSummary: "Auto-generated summary stored in MongoDB.",
+            durationStr: 'Session ended',
+            participantsCount: roomData.peakParticipants || 1,
+            aiSummary: 'No summary generated yet.',
             recordingAvailable: false
           });
           await newSession.save();

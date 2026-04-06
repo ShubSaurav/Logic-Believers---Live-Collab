@@ -24,6 +24,7 @@ const Room = () => {
   const [cursors, setCursors] = useState({});
   const [clientId, setClientId] = useState('');
   const [roomUsers, setRoomUsers] = useState(1);
+  const [joinError, setJoinError] = useState('');
   
   const [mediaState, setMediaState] = useState({
     mic: true,
@@ -35,21 +36,32 @@ const Room = () => {
   const chatBottomRef = useRef(null);
 
   useEffect(() => {
+    if (!roomId) {
+      alert('Please enter a room code to join.');
+      navigate('/dashboard');
+      return;
+    }
+
     // Establish WebSocket using room ID
     const socket = new WebSocket(`${wsBaseUrl}/connect`);
     
     socket.onopen = () => {
-      socket.send(JSON.stringify({ type: 'join', roomId: roomId || 'HACK24' }));
+      socket.send(JSON.stringify({ type: 'join', roomId }));
     };
 
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'joined') {
+        setJoinError('');
         setClientId(data.clientId);
         // Load initial chat history from the backend
         if (data.history && data.history.length > 0) {
           setMessages(data.history);
         }
+      } else if (data.type === 'error') {
+        setJoinError(data.message || 'Unable to join room');
+        alert(data.message || 'Unable to join room');
+        navigate('/dashboard');
       } else if (data.type === 'chat') {
         setMessages(prev => [...prev, data]);
       } else if (data.type === 'cursor') {
@@ -66,10 +78,14 @@ const Room = () => {
       }
     };
 
+    socket.onerror = () => {
+      setJoinError('Connection error. Please try again.');
+    };
+
     setWs(socket);
 
     return () => socket.close();
-  }, [roomId]);
+  }, [roomId, navigate]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -84,14 +100,14 @@ const Room = () => {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       // emit to other clients
-      ws.send(JSON.stringify({ type: 'cursor', x, y, roomId: roomId || 'HACK24' }));
+      ws.send(JSON.stringify({ type: 'cursor', x, y, roomId }));
     }
   };
 
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (inputMsg.trim() && ws) {
-      const msg = { type: 'chat', text: inputMsg, roomId: roomId || 'HACK24' };
+      const msg = { type: 'chat', text: inputMsg, roomId };
       ws.send(JSON.stringify(msg));
       setMessages(prev => [...prev, { ...msg, senderId: clientId }]);
       setInputMsg('');
@@ -108,16 +124,17 @@ const Room = () => {
       <header className="glass room-top-bar">
         <div className="room-info">
           <div className="room-title">
-            <h2 className="text-gradient">Board: {roomId || 'HACK24'}</h2>
+            <h2 className="text-gradient">Board: {roomId}</h2>
             <span className="live-badge">LIVE</span>
           </div>
+          {joinError && <p className="text-secondary text-sm">{joinError}</p>}
         </div>
         
         <div className="room-actions">
           <div className="facepile">
-            <img src="https://i.pravatar.cc/150?img=11" alt="Me" className="avatar active-speaker" />
-            {roomUsers > 1 && <img src="https://i.pravatar.cc/150?img=33" alt="P1" className="avatar" />}
-            {roomUsers > 2 && <img src="https://i.pravatar.cc/150?img=47" alt="P2" className="avatar" />}
+            <div className="avatar extra-count active-speaker">ME</div>
+            {roomUsers > 1 && <div className="avatar extra-count">U1</div>}
+            {roomUsers > 2 && <div className="avatar extra-count">U2</div>}
             {roomUsers > 3 && <div className="avatar extra-count">+{roomUsers - 3}</div>}
           </div>
           
@@ -155,7 +172,7 @@ const Room = () => {
             {activeLeftTab === 'chat' && (
               <div className="chat-container">
                 <div className="chat-messages">
-                  <div className="message system">Welcome to {roomId || 'HACK24'}</div>
+                  <div className="message system">Welcome to {roomId}</div>
                   {messages.map((m, i) => (
                     <div key={i} className={`message ${m.type === 'system' ? 'system' : (m.senderId === clientId ? 'me' : 'other')}`}>
                       {m.type !== 'system' && m.senderId !== clientId && <span className="sender-name">User {m.senderId.slice(0, 4)}</span>}
@@ -194,12 +211,12 @@ const Room = () => {
           {/* Top Floating Video Strip */}
           <div className="video-strip">
             <div className="video-tile active">
-              {mediaState.camera ? <img src="https://i.pravatar.cc/300?img=11" alt="Me" /> : <div className="video-placeholder">ME</div>}
+              <div className="video-placeholder">ME</div>
               <div className="tile-name">You {!mediaState.mic && <MicOff size={12} style={{marginLeft:'4px'}} color="#ef4444"/>}</div>
             </div>
             {roomUsers > 1 && (
               <div className="video-tile">
-                <img src="https://i.pravatar.cc/300?img=33" alt="P1" />
+                <div className="video-placeholder">U1</div>
                 <div className="tile-name">Remote <MicOff size={12} className="text-secondary" style={{marginLeft: '4px'}}/></div>
               </div>
             )}
@@ -219,12 +236,7 @@ const Room = () => {
               <button title="Eraser" onClick={()=>setActiveTool('eraser')} className={`tool-btn bounce-hover ${activeTool==='eraser'?'active':''}`}><Eraser size={18} /></button>
             </div>
 
-            {/* Simulated Interactive Elements */}
             <div className="static-board-content">
-              <div className="mock-sticky yellow bounce-hover" style={{top: '30%', left: '40%', position: 'absolute', cursor: 'grab'}}>
-                <p>Welcome to {roomId || 'HACK24'}</p>
-              </div>
-              
               {/* Remote Cursors */}
               {Object.keys(cursors).map(id => {
                 if (id !== clientId) {
@@ -255,8 +267,8 @@ const Room = () => {
             </div>
 
             <div className="ai-chat">
-              <div className="message ai-msg bounce-hover">
-                <div className="bubble">I've been analyzing your whiteboard. I can help convert those sticky notes into a structured task list. Would you like me to do that?</div>
+              <div className="message ai-msg">
+                <div className="bubble">AI assistant is connected. Summaries and tasks will appear here when generated.</div>
               </div>
               <div className="ai-input-area">
                 <input type="text" placeholder="Ask AI to analyze board..." className="input-glass" />

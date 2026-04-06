@@ -301,17 +301,17 @@
 .text-xs { font-size: 0.75rem; }
 
 .bounce-hover {
-  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
+  transition: none;
 }
 .bounce-hover:hover {
-  transform: translateY(-6px);
+  transform: none;
 }
 
 /* Skeleton Loaders */
 .skeleton-box {
   background: linear-gradient(90deg, var(--border-color) 25%, var(--bg-color) 50%, var(--border-color) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: none;
 }
 
 .skeleton-text {
@@ -319,7 +319,7 @@
   border-radius: 4px;
   background: linear-gradient(90deg, var(--border-color) 25%, var(--bg-color) 50%, var(--border-color) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: none;
   margin-bottom: 0.5rem;
 }
 

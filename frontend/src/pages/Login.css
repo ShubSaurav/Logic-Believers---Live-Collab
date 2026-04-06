@@ -235,6 +235,20 @@
   margin-top: 2rem;
 }
 
+.login-switch-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.login-switch-btn:hover {
+  color: var(--accent-secondary);
+}
+
 .font-medium {
   font-weight: 500;
 }

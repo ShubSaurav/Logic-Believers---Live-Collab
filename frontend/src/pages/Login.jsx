@@ -8,16 +8,67 @@ import './Login.css';
 const Login = () => {
   const navigate = useNavigate();
   const [roomCode, setRoomCode] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleLogin = (e) => {
     e.preventDefault();
+    const accounts = JSON.parse(localStorage.getItem('livecollab_accounts') || '[]');
+
+    if (isSignUp) {
+      const existing = accounts.find(acc => acc.email.toLowerCase() === email.trim().toLowerCase());
+      if (existing) {
+        alert('An account with this email already exists. Please sign in.');
+        setIsSignUp(false);
+        return;
+      }
+
+      const user = {
+        name: name.trim() || email.split('@')[0],
+        email: email.trim(),
+        picture: null,
+        local: true
+      };
+      const nextAccounts = [...accounts, { ...user, password }];
+      localStorage.setItem('livecollab_accounts', JSON.stringify(nextAccounts));
+      localStorage.setItem('user', JSON.stringify(user));
+      navigate('/dashboard');
+      return;
+    }
+
+    const account = accounts.find(
+      acc => acc.email.toLowerCase() === email.trim().toLowerCase() && acc.password === password
+    );
+    if (!account) {
+      alert('Invalid email or password. If you are new, click Create one.');
+      return;
+    }
+
+    localStorage.setItem('user', JSON.stringify({
+      name: account.name,
+      email: account.email,
+      picture: account.picture || null,
+      local: true
+    }));
     navigate('/dashboard');
   };
 
   const handleJoinRoom = (e) => {
     e.preventDefault();
-    if (roomCode.trim()) {
-      navigate(`/room/${roomCode}`);
+    const code = roomCode.trim().toUpperCase();
+    if (code) {
+      fetch(`${apiBaseUrl}/api/room/${code}`)
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error('Room not found');
+          }
+          navigate(`/room/${code}`);
+        })
+        .catch(() => {
+          alert('Room not found. Please check the code and try again.');
+        });
     }
   };
 
@@ -113,26 +164,60 @@ const Login = () => {
           </div>
           
           <div className="form-titles">
-            <h2>Welcome Back</h2>
-            <p className="text-secondary">Please enter your details to sign in.</p>
+            <h2>{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
+            <p className="text-secondary">
+              {isSignUp ? 'Create your account to get started.' : 'Please enter your details to sign in.'}
+            </p>
           </div>
 
           <form onSubmit={handleLogin} className="auth-form">
+            {isSignUp && (
+              <div className="form-group floating-input">
+                <div className="input-icon-wrapper">
+                  <Mail className="input-icon text-secondary" size={18} />
+                  <input
+                    type="text"
+                    className="input-glass input-with-icon"
+                    placeholder="Your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="form-group floating-input">
               <div className="input-icon-wrapper">
                 <Mail className="input-icon text-secondary" size={18} />
-                <input type="email" id="email" className="input-glass input-with-icon" placeholder="name@company.com" required />
+                <input
+                  type="email"
+                  id="email"
+                  className="input-glass input-with-icon"
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
               </div>
             </div>
             
             <div className="form-group floating-input">
               <div className="input-icon-wrapper">
                 <Lock className="input-icon text-secondary" size={18} />
-                <input type="password" id="pass" className="input-glass input-with-icon" placeholder="••••••••" required />
+                <input
+                  type="password"
+                  id="pass"
+                  className="input-glass input-with-icon"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
               </div>
             </div>
 
-            <div className="form-options">
+            <div className="form-options" style={{ visibility: isSignUp ? 'hidden' : 'visible' }}>
               <label className="checkbox-wrap">
                 <input type="checkbox" />
                 <span className="text-secondary text-sm">Remember me</span>
@@ -141,7 +226,7 @@ const Login = () => {
             </div>
 
             <button type="submit" className="btn-primary auth-submit flex-center">
-              Sign In <LogIn size={18} style={{marginLeft: '0.5rem'}} />
+              {isSignUp ? 'Create Account' : 'Sign In'} <LogIn size={18} style={{marginLeft: '0.5rem'}} />
             </button>
           </form>
 
@@ -179,7 +264,14 @@ const Login = () => {
           </div>
 
           <p className="signup-link text-center text-secondary text-sm">
-            Don't have an account? <a href="#" className="text-gradient font-medium">Create one</a>
+            {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
+            <button
+              type="button"
+              className="login-switch-btn font-medium"
+              onClick={() => setIsSignUp(prev => !prev)}
+            >
+              {isSignUp ? 'Sign in' : 'Create one'}
+            </button>
           </p>
         </div>
       </div>
